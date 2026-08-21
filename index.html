@@ -2753,7 +2753,7 @@ function formatoDinero(value) {
 
 function cuentaHtml(cuenta) {
     return `<div class="account-row">
-        <div class="account-name">${escapeHtml(cuenta.cafe_nombre || 'Cafetería')}</div>
+        <div class="account-name">${escapeHtml(cuenta.cafeteria_nombre || cuenta.cafe_nombre || 'Cafetería')}</div>
         <div class="account-period">${escapeHtml(cuenta.periodo || 'Periodo sin fecha')}</div>
         <div class="account-amount">${formatoDinero(cuenta.monto)}</div>
     </div>`;
