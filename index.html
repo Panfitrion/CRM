@@ -3417,22 +3417,48 @@ async function analizarDocumento(event) {
             textContent = await file.text();
         }
 
-        // Detectar automáticamente la cafetería por coincidencia de nombre en el texto extraído
         const cafeterias = obtenerCafeterias();
-        const cafeEncontrada = cafeterias.find(c => textContent.toLowerCase().includes(c.nombre.toLowerCase()));
-
-        // Extraer números y cantidades encontradas
-        const numeros = textContent.match(/\b\d+\b/g) || [];
+        const textLower = textContent.toLowerCase();
+        
+        // Detectar cafetería
+        let cafeEncontrada = cafeterias.find(c => textLower.includes(c.nombre.toLowerCase()));
+        
+        const rowsParsed = [];
+        if (cafeEncontrada && cafeEncontrada.productos) {
+            const lineas = textContent.split('\n');
+            for (const prod of cafeEncontrada.productos) {
+                const prodNombre = prod.nombre_producto.toLowerCase();
+                const lineaCoincidente = lineas.find(l => l.toLowerCase().includes(prodNombre));
+                if (lineaCoincidente) {
+                    // Extraer los números presentes en la línea
+                    const nums = (lineaCoincidente.match(/\b\d+\b/g) || []).map(Number);
+                    if (nums.length) {
+                        // Mapear hasta 6 días (Lun-Sáb)
+                        const values = [0, 0, 0, 0, 0, 0];
+                        nums.slice(0, 6).forEach((val, idx) => {
+                            values[idx] = val;
+                        });
+                        rowsParsed.push({
+                            product_id: prod.id,
+                            movement: 'sale',
+                            values: values
+                        });
+                    }
+                }
+            }
+        }
 
         importacionActual = {
             id: 'imp_' + Date.now(),
             original_name: file.name,
-            confidence: 90,
+            confidence: rowsParsed.length ? 95 : 70,
             week_start: new Date().toISOString().split('T')[0],
-            raw_excerpt: textContent.slice(0, 500) + (textContent.length > 500 ? '...' : ''),
+            raw_excerpt: textContent.slice(0, 600) + (textContent.length > 600 ? '...' : ''),
             cafeteria_id: cafeEncontrada ? cafeEncontrada.id : '',
-            rows: [],
-            warnings: cafeEncontrada ? [] : ['No se detectó automáticamente el nombre de la cafetería en el PDF. Por favor selecciónala manualmente.']
+            rows: rowsParsed,
+            warnings: cafeEncontrada 
+                ? (rowsParsed.length ? [] : ['Se detectó la cafetería pero se recomienda revisar y capturar las cantidades manualmente.']) 
+                : ['No se detectó automáticamente el nombre de la cafetería en el PDF. Por favor selecciónala manualmente.']
         };
 
         mostrarVistaImportacion();
