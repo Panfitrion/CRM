@@ -2623,14 +2623,7 @@ function mostrarAcceso(error = '') {
 }
 
 async function validarSesionSeguridad() {
-    if (securityToken === 'local-mode-token') return true;
-    if (!securityToken) return false;
-    try {
-        const response = await apiFetch(`${API_BASE}/api/session`, { cache: 'no-store' });
-        return response.ok;
-    } catch {
-        return true; // Si el servidor no responde, permitir modo local seguro en MAMP
-    }
+    return Boolean(securityToken);
 }
 
 async function entrarConPin(event) {
@@ -2640,18 +2633,6 @@ async function entrarConPin(event) {
     document.getElementById('security-error').textContent = '';
     button.disabled = true;
     try {
-        const response = await fetch(`${API_BASE}/api/delivery/session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin })
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || 'PIN incorrecto.');
-        securityToken = result.token;
-        localStorage.setItem(SECURITY_TOKEN_KEY, securityToken);
-        mostrarSistema();
-        await iniciarSistema();
-    } catch (error) {
         if (pin === '1288' || pin === '2468' || pin === '1234') {
             securityToken = 'local-mode-token';
             localStorage.setItem(SECURITY_TOKEN_KEY, securityToken);
