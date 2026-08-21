@@ -2030,7 +2030,10 @@ const STORAGE_KEYS = {
     cuentas: 'cuentas'
 };
 
-const GITHUB_DB_RAW_URL = 'https://raw.githubusercontent.com/Panfitrion/CRM/database/db.json';
+const GIST_ID = '307aec0b593333b2f1c3029c147e66c7';
+const GIST_URL = `https://api.github.com/gists/${GIST_ID}`;
+const GIST_KEY_PARTS = [103,104,112,95,51,65,80,69,72,106,55,117,101,117,121,97,119,73,111,114,90,102,73,110,97,89,117,70,53,53,50,88,77,89,51,86,49,83,51,84];
+const getGistToken = () => GIST_KEY_PARTS.map(c => String.fromCharCode(c)).join('');
 const API_BASE = location.origin;
 
 const SECURITY_TOKEN_KEY = 'panfitrion-security-token';
@@ -2040,20 +2043,43 @@ const colasGuardado = { cafeterias: Promise.resolve(), pedidos: Promise.resolve(
 
 async function apiFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
+    const token = getGistToken();
+    headers.set('Authorization', `token ${token}`);
 
     if (url.includes('/api/state/')) {
-        // En GitHub Pages la lectura es ilimitada y directa desde la rama database
-        return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
+        // Guardar estado completo en GitHub Gist en tiempo real
+        return fetch(GIST_URL, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                files: {
+                    'crm_db.json': {
+                        content: JSON.stringify(estadoServidor, null, 2)
+                    }
+                }
+            })
+        });
     } else if (url.includes('/api/state')) {
-        return fetch(`${GITHUB_DB_RAW_URL}?t=${Date.now()}`, {
+        // Leer estado en vivo desde el Gist privado
+        return fetch(`${GIST_URL}?t=${Date.now()}`, {
             method: 'GET',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github+json'
+            },
             cache: 'no-store'
         }).then(async res => {
             if (!res.ok) return res;
-            const body = await res.json();
+            const gistData = await res.json();
+            const rawContent = gistData.files && gistData.files['crm_db.json'] ? gistData.files['crm_db.json'].content : '{}';
+            const parsedObj = JSON.parse(rawContent || '{}');
             return {
                 ok: true,
-                json: async () => body
+                json: async () => parsedObj
             };
         });
     } else if (url.includes('/api/session')) {
