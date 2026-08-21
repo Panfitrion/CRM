@@ -2864,32 +2864,39 @@ function guardarClienteDetalle(event) {
 async function renderHistorialPedidos() {
     const contenedor = document.getElementById('lista-historial');
     if (!contenedor) return;
-    contenedor.innerHTML = '<div class="list-empty">Cargando historial...</div>';
     try {
-        const response = await apiFetch(`${API_BASE}/api/crm/orders`, { cache: 'no-store' });
-        let orders = response.ok ? await response.json() : [];
-        if (!Array.isArray(orders) || !orders.length) {
-            // Fallback a los pedidos en estadoServidor / JSONBin
-            const localPedidos = obtenerPedidos();
-            orders = localPedidos.map((p, idx) => {
-                const [cafeId, week] = p.clave.split('|');
-                const cafe = obtenerCafeteria(cafeId);
-                const totalUnits = Object.values(p.cantidades || {}).reduce((a, b) => a + Number(b), 0);
-                return {
-                    id: p.clave,
-                    folio: idx + 1,
-                    cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
-                    week_start: week || 'N/A',
-                    total_units: totalUnits,
-                    total_cents: 0,
-                    status: 'draft'
-                };
-            });
-        }
+        const localPedidos = obtenerPedidos();
+        const orders = localPedidos.map((p, idx) => {
+            const [cafeId, week] = p.clave.split('|');
+            const cafe = obtenerCafeteria(cafeId);
+            const totalUnits = Object.values(p.cantidades || {}).reduce((a, b) => a + Number(b), 0);
+            
+            let totalCents = 0;
+            for (const [key, qty] of Object.entries(p.cantidades || {})) {
+                const [prodId, movement] = key.split(':');
+                const prod = (cafe?.productos || []).find(pr => String(pr.id) === String(prodId));
+                const unitPrice = Number(prod?.precio) || 0;
+                if (qty > 0) {
+                    if (movement === 'venta') totalCents += qty * unitPrice * 100;
+                    else totalCents -= qty * unitPrice * 100;
+                }
+            }
+
+            return {
+                id: p.clave,
+                folio: idx + 1,
+                cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
+                week_start: week || 'N/A',
+                total_units: totalUnits,
+                total_cents: Math.max(0, totalCents),
+                status: 'draft'
+            };
+        });
+
         const estados = { draft: 'Borrador', confirmed: 'Confirmado', prepared: 'Preparado', delivered: 'Entregado', closed: 'Cerrado', cancelled: 'Cancelado' };
         contenedor.innerHTML = orders.length ? orders.map(order => `<div class="history-row">
             <div class="history-main">
-                <strong>${order.folio ? `Folio ${String(order.folio).padStart(6, '0')}` : 'Sin folio'}</strong>
+                <strong>${order.folio ? `Pedido #${order.folio}` : 'Sin folio'}</strong>
                 <small>${escapeHtml(order.cafeteria_name)}</small>
             </div>
             <div class="client-meta">Semana ${escapeHtml(String(order.week_start).slice(0, 10))}<br>${Number(order.total_units || 0).toLocaleString('es-MX')} unidades</div>
@@ -2897,7 +2904,7 @@ async function renderHistorialPedidos() {
             <div class="title-actions">
                 <button class="win-btn" type="button" onclick="abrirDetallePedido('${escapeHtml(order.id)}')">Ver pedido</button>
             </div>
-        </div>`).join('') : '<div class="list-empty">Todavía no hay pedidos en el historial.</div>';
+        </div>`).join('') : '<div class="list-empty">Todavía no hay pedidos registrados.</div>';
     } catch (error) {
         console.error(error);
         contenedor.innerHTML = '<div class="list-empty">No se pudo cargar el historial.</div>';
@@ -2906,46 +2913,41 @@ async function renderHistorialPedidos() {
 
 async function abrirDetallePedido(id) {
     try {
-        const response = await apiFetch(`${API_BASE}/api/crm/orders/${encodeURIComponent(id)}`, { cache: 'no-store' });
-        let order = response.ok ? await response.json() : null;
-        if (!order || !order.id) {
-            // Fallback a estadoServidor
-            const localPedidos = obtenerPedidos();
-            const p = localPedidos.find(item => item.clave === id);
-            if (!p) throw new Error('Pedido no encontrado');
-            const [cafeId, week] = p.clave.split('|');
-            const cafe = obtenerCafeteria(cafeId);
-            const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-            const lines = [];
-            let totalCents = 0;
-            for (const [key, qty] of Object.entries(p.cantidades || {})) {
-                const [prodId, movement, dayIdxStr] = key.split(':');
-                const prod = (cafe?.productos || []).find(pr => String(pr.id) === String(prodId));
-                const dayIndex = Number(dayIdxStr) || 0;
-                const unitPrice = Number(prod?.precio) || 0;
-                if (qty > 0) {
-                    if (movement === 'venta') totalCents += qty * unitPrice * 100;
-                    else totalCents -= qty * unitPrice * 100;
-                    lines.push({
-                        product_name: prod ? prod.nombre_producto : 'Producto',
-                        movement: movement === 'devolucion' ? 'return' : 'sale',
-                        day_index: dayIndex,
-                        quantity: qty,
-                        unit_price_cents: unitPrice * 100
-                    });
-                }
+        const localPedidos = obtenerPedidos();
+        const p = localPedidos.find(item => item.clave === id);
+        if (!p) throw new Error('Pedido no encontrado');
+        const [cafeId, week] = p.clave.split('|');
+        const cafe = obtenerCafeteria(cafeId);
+        const lines = [];
+        let totalCents = 0;
+        for (const [key, qty] of Object.entries(p.cantidades || {})) {
+            const [prodId, movement, dayIdxStr] = key.split(':');
+            const prod = (cafe?.productos || []).find(pr => String(pr.id) === String(prodId));
+            const dayIndex = Number(dayIdxStr) || 0;
+            const unitPrice = Number(prod?.precio) || 0;
+            if (qty > 0) {
+                if (movement === 'venta') totalCents += qty * unitPrice * 100;
+                else totalCents -= qty * unitPrice * 100;
+                lines.push({
+                    product_name: prod ? prod.nombre_producto : 'Producto',
+                    movement: movement === 'devolucion' ? 'return' : 'sale',
+                    day_index: dayIndex,
+                    quantity: qty,
+                    unit_price_cents: unitPrice * 100
+                });
             }
-            order = {
-                id: p.clave,
-                folio: 1,
-                cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
-                week_start: week,
-                total_cents: Math.max(0, totalCents),
-                lines
-            };
         }
+        const order = {
+            id: p.clave,
+            folio: 1,
+            cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
+            week_start: week,
+            total_cents: Math.max(0, totalCents),
+            lines
+        };
+
         document.getElementById('pedido-detalle-titulo').textContent = `${order.cafeteria_name} (${order.week_start})`;
-        const days = ['Día 1', 'Día 2', 'Día 3', 'Día 4', 'Día 5', 'Día 6'];
+        const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
         const rows = order.lines.map(line => `<tr>
             <td>${escapeHtml(line.product_name)}</td>
             <td>${line.movement === 'return' ? 'Devolución' : 'Venta'}</td>
@@ -3676,21 +3678,25 @@ async function guardarImportacion() {
 async function renderImportacionesRecientes() {
     const container = document.getElementById('import-history');
     if (!container) return;
-    container.innerHTML = '<p class="helper" style="padding:14px">Cargando...</p>';
     try {
-        const response = await apiFetch(`${API_BASE}/api/imports`, { cache: 'no-store' });
-        if (!response.ok) throw new Error('No se pudo cargar el historial.');
-        const imports = await response.json();
-        const labels = { preview: 'Revisión', committed: 'Registrado', rejected: 'Descartado', failed: 'Error' };
-        container.innerHTML = imports.length ? imports.map(item => `<div class="import-history-row">
-            <div>
-                <strong>${escapeHtml(item.original_name)}</strong>
-                <small>${escapeHtml(item.cafeteria_name || 'Sin cafetería')} ${item.week_start ? `| ${escapeHtml(String(item.week_start).slice(0, 10))}` : ''}</small>
-            </div>
-            <span class="import-history-state">${escapeHtml(labels[item.status] || item.status)}</span>
-        </div>`).join('') : '<p class="helper" style="padding:14px">Todavía no hay documentos importados.</p>';
+        const pedidos = obtenerPedidos();
+        if (!pedidos.length) {
+            container.innerHTML = '<p class="helper" style="padding:14px">Todavía no hay documentos importados.</p>';
+            return;
+        }
+        container.innerHTML = pedidos.slice(-5).reverse().map(item => {
+            const [cafeId, week] = item.clave.split('|');
+            const cafe = obtenerCafeteria(cafeId);
+            return `<div class="import-history-row">
+                <div>
+                    <strong>Documento PDF</strong>
+                    <small>${escapeHtml(cafe ? cafe.nombre : 'Cafetería')} | ${escapeHtml(week || '')}</small>
+                </div>
+                <span class="import-history-state">Registrado</span>
+            </div>`;
+        }).join('');
     } catch (error) {
-        container.innerHTML = `<p class="helper" style="padding:14px">${escapeHtml(error.message)}</p>`;
+        container.innerHTML = '<p class="helper" style="padding:14px">Todavía no hay documentos importados.</p>';
     }
 }
 
@@ -3743,15 +3749,20 @@ function getWeekDates(fechaStr) {
 let pdfLogoData = '';
 async function getPdfLogoData() {
     if (pdfLogoData) return pdfLogoData;
-    const response = await fetch(`${API_BASE}/entregas/panfitrion-logo.png`);
-    if (!response.ok) throw new Error('No se pudo cargar el logotipo.');
-    const blob = await response.blob();
-    pdfLogoData = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('No se pudo leer el logotipo.'));
-        reader.readAsDataURL(blob);
-    });
+    try {
+        const response = await fetch('./panfitrion-logo.png');
+        if (response.ok) {
+            const blob = await response.blob();
+            pdfLogoData = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => resolve('');
+                reader.readAsDataURL(blob);
+            });
+        }
+    } catch (e) {
+        pdfLogoData = '';
+    }
     return pdfLogoData;
 }
 
@@ -4007,31 +4018,36 @@ async function cerrarSemanaCafeteria() {
     const button = document.getElementById('btn-cerrar-semana');
     button.disabled = true;
     button.textContent = 'Cerrando...';
-    try {
-        const response = await apiFetch(`${API_BASE}/api/crm/orders/close`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                cafeteria_id: cafe.id,
-                fecha_inicio: fechaStr,
-                pedido_clave: clave,
-                periodo: rango,
-                cantidades
-            })
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'No se pudo cerrar la semana');
-        estadoServidor.cuentas.push(result.account);
-        estadoServidor.pedidos = estadoServidor.pedidos.filter(item => item.clave !== clave);
+        const folioNuevo = (leerLocal(STORAGE_KEYS.cuentas).length || 0) + 1;
+        const nuevaCuenta = {
+            id: crearId(),
+            folio: folioNuevo,
+            cafeteria_id: cafe.id,
+            cafeteria_nombre: cafe.nombre,
+            monto: total,
+            periodo: rango,
+            fecha_inicio: fechaStr,
+            cantidades: cantidades,
+            estado: 'pendiente',
+            creado_en: new Date().toISOString()
+        };
+
+        const cuentasActuales = leerLocal(STORAGE_KEYS.cuentas);
+        cuentasActuales.push(nuevaCuenta);
+        guardarLocal(STORAGE_KEYS.cuentas, cuentasActuales);
+
+        const pedidosActuales = obtenerPedidos().filter(item => item.clave !== clave);
+        guardarLocal(STORAGE_KEYS.pedidos, pedidosActuales);
+
         document.querySelectorAll('#table-pedidos input').forEach(input => input.value = '');
         recalcPedido();
         renderResumen();
         renderCuentas();
         renderHistorialPedidos();
-        showToast(`Semana cerrada. Folio ${String(result.folio).padStart(6, '0')}.`, 'success');
+        showToast(`Semana cerrada. Folio ${String(folioNuevo).padStart(6, '0')}.`, 'success');
     } catch (error) {
         console.error(error);
-        showToast(error.message, 'error');
+        showToast('No se pudo cerrar la semana.', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Cerrar y cobrar';
