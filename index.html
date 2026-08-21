@@ -4014,6 +4014,7 @@ async function cerrarSemanaCafeteria() {
     const button = document.getElementById('btn-cerrar-semana');
     button.disabled = true;
     button.textContent = 'Cerrando...';
+    try {
         const folioNuevo = (leerLocal(STORAGE_KEYS.cuentas).length || 0) + 1;
         const nuevaCuenta = {
             id: crearId(),
