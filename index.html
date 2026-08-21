@@ -2436,6 +2436,10 @@ function obtenerCafeterias() {
     return leerLocal(STORAGE_KEYS.cafeterias);
 }
 
+function obtenerPedidos() {
+    return leerLocal(STORAGE_KEYS.pedidos);
+}
+
 function obtenerCafeteria(id) {
     return obtenerCafeterias().find(cafe => String(cafe.id) === String(id));
 }
@@ -2636,8 +2640,25 @@ async function renderHistorialPedidos() {
     contenedor.innerHTML = '<div class="list-empty">Cargando historial...</div>';
     try {
         const response = await apiFetch(`${API_BASE}/api/crm/orders`, { cache: 'no-store' });
-        if (!response.ok) throw new Error('No se pudo cargar el historial');
-        const orders = await response.json();
+        let orders = response.ok ? await response.json() : [];
+        if (!Array.isArray(orders) || !orders.length) {
+            // Fallback a los pedidos en estadoServidor / JSONBin
+            const localPedidos = obtenerPedidos();
+            orders = localPedidos.map((p, idx) => {
+                const [cafeId, week] = p.clave.split('|');
+                const cafe = obtenerCafeteria(cafeId);
+                const totalUnits = Object.values(p.cantidades || {}).reduce((a, b) => a + Number(b), 0);
+                return {
+                    id: p.clave,
+                    folio: idx + 1,
+                    cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
+                    week_start: week || 'N/A',
+                    total_units: totalUnits,
+                    total_cents: 0,
+                    status: 'draft'
+                };
+            });
+        }
         const estados = { draft: 'Borrador', confirmed: 'Confirmado', prepared: 'Preparado', delivered: 'Entregado', closed: 'Cerrado', cancelled: 'Cancelado' };
         contenedor.innerHTML = orders.length ? orders.map(order => `<div class="history-row">
             <div class="history-main">
@@ -2648,7 +2669,6 @@ async function renderHistorialPedidos() {
             <div><span class="status-text">${escapeHtml(estados[order.status] || order.status)}</span><br><span class="account-amount">${formatoDinero(Number(order.total_cents) / 100)}</span></div>
             <div class="title-actions">
                 <button class="win-btn" type="button" onclick="abrirDetallePedido('${escapeHtml(order.id)}')">Ver pedido</button>
-                <button class="win-btn" type="button" onclick="imprimirTicketTSP('${escapeHtml(order.id)}')">Reimprimir</button>
             </div>
         </div>`).join('') : '<div class="list-empty">Todavía no hay pedidos en el historial.</div>';
     } catch (error) {
@@ -2660,9 +2680,44 @@ async function renderHistorialPedidos() {
 async function abrirDetallePedido(id) {
     try {
         const response = await apiFetch(`${API_BASE}/api/crm/orders/${encodeURIComponent(id)}`, { cache: 'no-store' });
-        if (!response.ok) throw new Error('Pedido no encontrado');
-        const order = await response.json();
-        document.getElementById('pedido-detalle-titulo').textContent = `Folio ${String(order.folio).padStart(6, '0')} - ${order.cafeteria_name}`;
+        let order = response.ok ? await response.json() : null;
+        if (!order || !order.id) {
+            // Fallback a estadoServidor
+            const localPedidos = obtenerPedidos();
+            const p = localPedidos.find(item => item.clave === id);
+            if (!p) throw new Error('Pedido no encontrado');
+            const [cafeId, week] = p.clave.split('|');
+            const cafe = obtenerCafeteria(cafeId);
+            const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            const lines = [];
+            let totalCents = 0;
+            for (const [key, qty] of Object.entries(p.cantidades || {})) {
+                const [prodId, movement, dayIdxStr] = key.split(':');
+                const prod = (cafe?.productos || []).find(pr => String(pr.id) === String(prodId));
+                const dayIndex = Number(dayIdxStr) || 0;
+                const unitPrice = Number(prod?.precio) || 0;
+                if (qty > 0) {
+                    if (movement === 'venta') totalCents += qty * unitPrice * 100;
+                    else totalCents -= qty * unitPrice * 100;
+                    lines.push({
+                        product_name: prod ? prod.nombre_producto : 'Producto',
+                        movement: movement === 'devolucion' ? 'return' : 'sale',
+                        day_index: dayIndex,
+                        quantity: qty,
+                        unit_price_cents: unitPrice * 100
+                    });
+                }
+            }
+            order = {
+                id: p.clave,
+                folio: 1,
+                cafeteria_name: cafe ? cafe.nombre : 'Cafetería',
+                week_start: week,
+                total_cents: Math.max(0, totalCents),
+                lines
+            };
+        }
+        document.getElementById('pedido-detalle-titulo').textContent = `${order.cafeteria_name} (${order.week_start})`;
         const days = ['Día 1', 'Día 2', 'Día 3', 'Día 4', 'Día 5', 'Día 6'];
         const rows = order.lines.map(line => `<tr>
             <td>${escapeHtml(line.product_name)}</td>
@@ -2681,7 +2736,7 @@ async function abrirDetallePedido(id) {
         document.getElementById('dialog-pedido').showModal();
     } catch (error) {
         console.error(error);
-        showToast('No se pudo abrir el pedido.', 'error');
+        showToast('No se pudo abrir el detalle del pedido.', 'error');
     }
 }
 
