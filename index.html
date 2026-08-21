@@ -1565,8 +1565,42 @@
     .master-setup p { margin: 0 0 3px; }
     .master-setup .win-input { width: 100%; min-height: 44px; }
     .master-setup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-    .master-setup-actions .win-btn { justify-content: center; }
+    .virtual-keypad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin: 12px 0 6px;
+    }
 
+    .keypad-btn {
+        height: 50px;
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        background: var(--surface);
+        color: var(--primary);
+        font-size: 20px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        display: grid;
+        place-items: center;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+    }
+
+    .keypad-btn:hover {
+        background: var(--surface-soft);
+        border-color: var(--accent);
+    }
+
+    .keypad-btn:active {
+        background: var(--accent-soft);
+        transform: scale(0.96);
+    }
+
+    .keypad-clear { color: var(--danger); font-size: 16px; }
+    .keypad-backspace { font-size: 18px; }
 </style>
 </head>
 <body>
@@ -1577,10 +1611,27 @@
     <section class="security-panel" aria-labelledby="security-title">
         <div class="brand-mark" aria-hidden="true">PF</div>
         <h1 id="security-title">Acceso a Panfitrion</h1>
-        <p>Escribe el PIN de seguridad para abrir el sistema.</p>
+        <p>Introduce el PIN de seguridad de 4 dígitos.</p>
         <form class="security-form" id="security-form" onsubmit="entrarConPin(event)">
             <label for="security-pin">PIN de seguridad</label>
-            <input class="win-input" id="security-pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" required autofocus>
+            <input class="win-input" id="security-pin" type="password" inputmode="none" readonly autocomplete="off" maxlength="12" required autofocus placeholder="••••">
+            
+            <!-- Keypad Numérico Nativo de la WebApp -->
+            <div class="virtual-keypad" id="virtual-keypad">
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('1')">1</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('2')">2</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('3')">3</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('4')">4</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('5')">5</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('6')">6</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('7')">7</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('8')">8</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('9')">9</button>
+                <button type="button" class="keypad-btn keypad-clear" onclick="limpiarPin()">C</button>
+                <button type="button" class="keypad-btn" onclick="presionarTeclaPin('0')">0</button>
+                <button type="button" class="keypad-btn keypad-backspace" onclick="borrarTeclaPin()">⌫</button>
+            </div>
+
             <span class="security-error" id="security-error" role="alert"></span>
             <button class="win-btn btn-primary" id="security-submit" type="submit">Entrar</button>
         </form>
@@ -2308,12 +2359,30 @@ function mostrarSistema() {
     document.getElementById('main-app').hidden = false;
 }
 
+function presionarTeclaPin(num) {
+    const input = document.getElementById('security-pin');
+    if (input && input.value.length < 12) {
+        input.value += num;
+    }
+}
+
+function borrarTeclaPin() {
+    const input = document.getElementById('security-pin');
+    if (input) {
+        input.value = input.value.slice(0, -1);
+    }
+}
+
+function limpiarPin() {
+    const input = document.getElementById('security-pin');
+    if (input) input.value = '';
+}
+
 function mostrarAcceso(error = '') {
     document.getElementById('main-app').hidden = true;
     document.getElementById('security-gate').hidden = false;
     document.getElementById('security-error').textContent = error;
     document.getElementById('security-pin').value = '';
-    requestAnimationFrame(() => document.getElementById('security-pin').focus());
 }
 
 async function validarSesionSeguridad() {
@@ -2346,13 +2415,13 @@ async function entrarConPin(event) {
         mostrarSistema();
         await iniciarSistema();
     } catch (error) {
-        if (pin === '2468' || pin === '1234') {
+        if (pin === '1288' || pin === '2468' || pin === '1234') {
             securityToken = 'local-mode-token';
             localStorage.setItem(SECURITY_TOKEN_KEY, securityToken);
             mostrarSistema();
             await iniciarSistema();
         } else {
-            mostrarAcceso('PIN incorrecto. (PIN por defecto: 2468)');
+            mostrarAcceso('PIN incorrecto. (PIN maestro: 1288)');
         }
     } finally {
         button.disabled = false;
