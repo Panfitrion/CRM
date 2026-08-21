@@ -1979,9 +1979,7 @@ const STORAGE_KEYS = {
     cuentas: 'cuentas'
 };
 
-const JSONBIN_MASTER_KEY = '$2a$10$FortUOD9NuN4GW7n.KJ6b.UM9uev85SQssJbg5zh9miGiswDUc01e';
-const JSONBIN_BIN_ID = '6a889c50da38895dfe00dadd';
-const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+const GITHUB_DB_RAW_URL = 'https://raw.githubusercontent.com/Panfitrion/CRM/database/db.json';
 const API_BASE = location.origin;
 
 const SECURITY_TOKEN_KEY = 'panfitrion-security-token';
@@ -1991,38 +1989,25 @@ const colasGuardado = { cafeterias: Promise.resolve(), pedidos: Promise.resolve(
 
 async function apiFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
-    headers.set('X-Master-Key', JSONBIN_MASTER_KEY);
 
     if (url.includes('/api/state/')) {
-        const key = url.split('/api/state/')[1];
-        // Para JSONBin actualizamos todo el objeto estadoServidor
-        return fetch(JSONBIN_URL, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': JSONBIN_MASTER_KEY
-            },
-            body: JSON.stringify(estadoServidor)
-        });
+        // En GitHub Pages la lectura es ilimitada y directa desde la rama database
+        return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
     } else if (url.includes('/api/state')) {
-        return fetch(`${JSONBIN_URL}/latest`, {
+        return fetch(`${GITHUB_DB_RAW_URL}?t=${Date.now()}`, {
             method: 'GET',
-            headers: {
-                'X-Master-Key': JSONBIN_MASTER_KEY
-            }
+            cache: 'no-store'
         }).then(async res => {
             if (!res.ok) return res;
             const body = await res.json();
-            // JSONBin v3 devuelve los datos dentro de .record
             return {
                 ok: true,
-                json: async () => body.record || body
+                json: async () => body
             };
         });
     } else if (url.includes('/api/session')) {
         return Promise.resolve({ ok: true, json: async () => ({ active: true }) });
     }
-    // Para rutas secundarias o imagenes que no existan en GitHub Pages, evitar fallar con errores no capturados
     return fetch(url, { ...options, headers }).catch(() => ({
         ok: false,
         json: async () => ({})
