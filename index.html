@@ -2835,6 +2835,7 @@ function cuentaHtml(cuenta) {
         <div class="account-period">${escapeHtml(cuenta.periodo || 'Periodo sin fecha')}</div>
         <div class="account-amount">${formatoDinero(cuenta.monto)}</div>
     </div>`;
+}
 function renderResumen() {
     const cafes = obtenerCafeterias();
     const cuentas = leerLocal(STORAGE_KEYS.cuentas);
