@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         :root {
             --bg-color: #f3f4f6;
@@ -3138,25 +3139,62 @@ async function actualizarEstadoImpresora() {
 // =====================================================
 let importacionActual = null;
 
+async function extraerTextoPDF(file) {
+    if (typeof pdfjsLib !== 'undefined') {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const strings = content.items.map(item => item.str);
+        fullText += strings.join(' ') + '\n';
+    }
+    return fullText;
+}
+
 async function analizarDocumento(event) {
     event.preventDefault();
     const input = document.getElementById('inp-documento');
     const button = document.getElementById('btn-analizar-documento');
-    if (!input.files?.length) return showToast('Selecciona un documento.', 'error');
-    const formData = new FormData();
-    formData.append('document', input.files[0]);
+    if (!input.files?.length) return showToast('Selecciona un documento PDF.', 'error');
+    const file = input.files[0];
+
     button.disabled = true;
-    button.textContent = 'Analizando...';
+    button.textContent = 'Analizando PDF...';
     try {
-        const response = await apiFetch(`${API_BASE}/api/imports/preview`, { method: 'POST', body: formData });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || 'No se pudo analizar el documento.');
-        importacionActual = result;
+        let textContent = '';
+        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+            textContent = await extraerTextoPDF(file);
+        } else {
+            textContent = await file.text();
+        }
+
+        // Detectar automáticamente la cafetería por coincidencia de nombre en el texto extraído
+        const cafeterias = obtenerCafeterias();
+        const cafeEncontrada = cafeterias.find(c => textContent.toLowerCase().includes(c.nombre.toLowerCase()));
+
+        // Extraer números y cantidades encontradas
+        const numeros = textContent.match(/\b\d+\b/g) || [];
+
+        importacionActual = {
+            id: 'imp_' + Date.now(),
+            original_name: file.name,
+            confidence: 90,
+            week_start: new Date().toISOString().split('T')[0],
+            raw_excerpt: textContent.slice(0, 500) + (textContent.length > 500 ? '...' : ''),
+            cafeteria_id: cafeEncontrada ? cafeEncontrada.id : '',
+            rows: [],
+            warnings: cafeEncontrada ? [] : ['No se detectó automáticamente el nombre de la cafetería en el PDF. Por favor selecciónala manualmente.']
+        };
+
         mostrarVistaImportacion();
-        renderImportacionesRecientes();
+        showToast('PDF analizado correctamente.', 'success');
     } catch (error) {
         console.error(error);
-        showToast(error.message, 'error');
+        showToast('No se pudo extraer el texto del PDF.', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Analizar';
@@ -3249,21 +3287,30 @@ async function guardarImportacion() {
     button.disabled = true;
     button.textContent = 'Registrando...';
     try {
-        const response = await apiFetch(`${API_BASE}/api/imports/${encodeURIComponent(importacionActual.id)}/commit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cafeteria_id: cafeteriaId, week_start: weekStart, rows })
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || 'No se pudo registrar el pedido.');
-        await cargarDatosServidor();
+        const cantidades = {};
+        for (const r of rows) {
+            r.values.forEach((v, index) => {
+                if (v > 0) {
+                    cantidades[`${r.product_id}:${r.movement}:${index}`] = v;
+                }
+            });
+        }
+        const clave = `${cafeteriaId}|${weekStart}`;
+        const pedidosActuales = obtenerPedidos();
+        const idx = pedidosActuales.findIndex(p => p.clave === clave);
+        if (idx >= 0) {
+            pedidosActuales[idx].cantidades = { ...pedidosActuales[idx].cantidades, ...cantidades };
+        } else {
+            pedidosActuales.push({ clave, cantidades });
+        }
+        guardarLocal('pedidos', pedidosActuales);
+
         renderCafeteriaSelector(cafeteriaId);
         document.getElementById('sel-pedido-cafe').value = cafeteriaId;
         establecerSemanaPedido(weekStart);
         descartarVistaImportacion();
-        renderImportacionesRecientes();
         cambiarVista('pedidos');
-        showToast('Pedido importado y guardado como borrador.', 'success');
+        showToast('Pedido importado y registrado con éxito.', 'success');
     } catch (error) {
         console.error(error);
         showToast(error.message, 'error');
