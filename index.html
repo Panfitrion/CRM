@@ -1621,7 +1621,7 @@
         <button class="nav-button" type="button" data-view="cobranza" onclick="cambiarVista('cobranza')">Cobranza</button>
         <button class="nav-button" type="button" data-view="importaciones" onclick="cambiarVista('importaciones')">Importaciones</button>
     </nav>
-    <div class="sidebar-footer">Datos guardados en PostgreSQL<br>MacBook Air</div>
+    <div class="sidebar-footer">GitHub Database (Cloud Sync)<br>Panfitrion CRM</div>
 </aside>
 
 <main class="app-content">
@@ -2403,6 +2403,7 @@ function guardarLocal(key, data) {
 
 async function cargarDatosServidor() {
     try {
+        mostrarEstadoConexion('loading', 'Conectando a GitHub...');
         const response = await apiFetch(`/api/state`, { cache: 'no-store' });
         if (!response.ok) throw new Error('No se pudo conectar');
         const data = await response.json();
@@ -2410,10 +2411,12 @@ async function cargarDatosServidor() {
             estadoServidor[key] = Array.isArray(data[key]) ? data[key] : [];
             guardarLocalStorageFallback(key, estadoServidor[key]);
         }
+        mostrarEstadoConexion('online', 'GitHub Database (Conectado)');
     } catch (e) {
         for (const key of Object.keys(estadoServidor)) {
             estadoServidor[key] = leerLocalStorageFallback(key);
         }
+        mostrarEstadoConexion('online', 'Guardado Local');
     }
 }
 
@@ -2464,7 +2467,7 @@ const VISTAS = {
     resumen: { title: 'Resumen', subtitle: 'Estado general de la operación' },
     clientes: { title: 'Clientes', subtitle: 'Información comercial y condiciones de servicio' },
     pedidos: { title: 'Pedidos', subtitle: 'Captura semanal por cafetería' },
-    historial: { title: 'Historial', subtitle: 'Pedidos y folios conservados en PostgreSQL' },
+    historial: { title: 'Historial', subtitle: 'Pedidos y folios sincronizados en la nube' },
     catalogo: { title: 'Catálogo', subtitle: 'Cafeterías, productos y precios' },
     cobranza: { title: 'Cobranza', subtitle: 'Cuentas generadas al cerrar semanas' },
     importaciones: { title: 'Importaciones', subtitle: 'Registrar pedidos desde documentos' }
