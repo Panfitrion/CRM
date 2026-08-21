@@ -2672,7 +2672,12 @@ function obtenerCafeteria(id) {
 }
 
 function crearId() {
-    return window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    try {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+    } catch (e) {}
+    return 'id_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
 }
 
 function escapeHtml(value) {
@@ -3405,17 +3410,8 @@ async function imprimirTicketTSP(orderId = '') {
 async function actualizarEstadoImpresora() {
     const button = document.getElementById('btn-imprimir-ticket');
     if (!button) return;
-    try {
-        const response = await apiFetch(`${API_BASE}/api/printer/status`, { cache: 'no-store' });
-        const status = await response.json();
-        button.dataset.printer = status.ok ? 'ready' : 'missing';
-        button.title = status.ok
-            ? `Imprimir directamente en ${status.printer}`
-            : (status.error || status.message || 'Conecta la TSP100III en macOS.');
-    } catch {
-        button.dataset.printer = 'missing';
-        button.title = 'El servicio de impresión no está disponible.';
-    }
+    button.dataset.printer = 'missing';
+    button.title = 'Para imprimir tickets conecta el servidor de impresión local TSP100III.';
 }
 
 // =====================================================
