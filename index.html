@@ -2021,7 +2021,11 @@ async function apiFetch(url, options = {}) {
     } else if (url.includes('/api/session')) {
         return Promise.resolve({ ok: true, json: async () => ({ active: true }) });
     }
-    return fetch(url, { ...options, headers });
+    // Para rutas secundarias o imagenes que no existan en GitHub Pages, evitar fallar con errores no capturados
+    return fetch(url, { ...options, headers }).catch(() => ({
+        ok: false,
+        json: async () => ({})
+    }));
 }
 
 const INITIAL_BACKUP_DATA = {
