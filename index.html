@@ -2835,6 +2835,27 @@ function cuentaHtml(cuenta) {
         <div class="account-period">${escapeHtml(cuenta.periodo || 'Periodo sin fecha')}</div>
         <div class="account-amount">${formatoDinero(cuenta.monto)}</div>
     </div>`;
+function renderResumen() {
+    const cafes = obtenerCafeterias();
+    const cuentas = leerLocal(STORAGE_KEYS.cuentas);
+    const productos = cafes.reduce((total, cafe) => total + (cafe.productos || []).length, 0);
+    const saldo = cuentas.filter(c => (c.estado_pago || 'pendiente') === 'pendiente').reduce((total, cuenta) => total + (Number(cuenta.monto) || 0), 0);
+    const valores = {
+        'metric-cafeterias': cafes.length,
+        'metric-productos': productos,
+        'metric-cuentas': cuentas.length,
+        'metric-saldo': formatoDinero(saldo)
+    };
+    Object.entries(valores).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+    });
+    const contenedor = document.getElementById('resumen-cuentas');
+    if (!contenedor) return;
+    const recientes = cuentas.slice().reverse().slice(0, 5);
+    contenedor.innerHTML = recientes.length
+        ? recientes.map(cuentaHtml).join('')
+        : '<div class="list-empty">No hay cuentas pendientes.</div>';
 }
 
 let estadoCobranzaFiltro = 'pendiente';
