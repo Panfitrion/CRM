@@ -2610,7 +2610,18 @@ async function cargarDatosServidor() {
         if (!response.ok) throw new Error('No se pudo conectar');
         const data = await response.json();
         for (const key of Object.keys(estadoServidor)) {
-            estadoServidor[key] = Array.isArray(data[key]) ? data[key] : [];
+            const serverArray = Array.isArray(data[key]) ? data[key] : [];
+            const localArray = leerLocalStorageFallback(key);
+            
+            if (key === 'pedidos') {
+                // Combinar pedidos remotos y locales sin perder los locales creados en la sesión
+                const map = new Map();
+                serverArray.forEach(p => map.set(p.clave, p));
+                localArray.forEach(p => map.set(p.clave, p));
+                estadoServidor[key] = Array.from(map.values());
+            } else {
+                estadoServidor[key] = localArray.length ? localArray : serverArray;
+            }
             guardarLocalStorageFallback(key, estadoServidor[key]);
         }
         mostrarEstadoConexion('online', 'GitHub Database (Conectado)');
