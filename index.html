@@ -2691,7 +2691,7 @@ function guardarLocal(key, data) {
 
 async function cargarDatosServidor() {
     try {
-        mostrarEstadoConexion('loading', 'Conectando a GitHub...');
+        mostrarEstadoConexion('loading', 'Conectando a GitHub Gist...');
         const response = await apiFetch(`/api/state`, { cache: 'no-store' });
         if (!response.ok) throw new Error('No se pudo conectar');
         const data = await response.json();
@@ -2699,23 +2699,23 @@ async function cargarDatosServidor() {
             const serverArray = Array.isArray(data[key]) ? data[key] : [];
             const localArray = leerLocalStorageFallback(key);
             
-            if (key === 'pedidos') {
-                // Combinar pedidos remotos y locales sin perder los locales creados en la sesión
-                const map = new Map();
-                serverArray.forEach(p => map.set(p.clave, p));
-                localArray.forEach(p => map.set(p.clave, p));
-                estadoServidor[key] = Array.from(map.values());
-            } else {
-                estadoServidor[key] = localArray.length ? localArray : serverArray;
-            }
+            // Combinar registros manteniendo identificador único (id o clave)
+            const map = new Map();
+            serverArray.forEach(item => map.set(item.id || item.clave, item));
+            localArray.forEach(item => {
+                const k = item.id || item.clave;
+                if (!map.has(k)) map.set(k, item);
+            });
+
+            estadoServidor[key] = Array.from(map.values());
             guardarLocalStorageFallback(key, estadoServidor[key]);
         }
-        mostrarEstadoConexion('online', 'GitHub Database (Conectado)');
+        mostrarEstadoConexion('online', 'Nube Conectada');
     } catch (e) {
         for (const key of Object.keys(estadoServidor)) {
             estadoServidor[key] = leerLocalStorageFallback(key);
         }
-        mostrarEstadoConexion('online', 'Guardado Local');
+        mostrarEstadoConexion('online', 'Caché Local');
     }
 }
 
