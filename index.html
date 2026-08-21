@@ -3604,9 +3604,10 @@ async function guardarImportacion() {
     try {
         const cantidades = {};
         for (const r of rows) {
+            const movementKey = r.movement === 'sale' ? 'venta' : (r.movement === 'return' ? 'devolucion' : r.movement);
             r.values.forEach((v, index) => {
                 if (v > 0) {
-                    cantidades[`${r.product_id}:${r.movement}:${index}`] = v;
+                    cantidades[`${r.product_id}:${movementKey}:${index}`] = v;
                 }
             });
         }
