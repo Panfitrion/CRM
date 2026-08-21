@@ -3394,8 +3394,22 @@ async function extraerTextoPDF(file) {
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        const strings = content.items.map(item => item.str);
-        fullText += strings.join(' ') + '\n';
+        // Agrupar elementos por posición vertical Y para mantener la estructura de tabla
+        const linesMap = new Map();
+        for (const item of content.items) {
+            if (!item.str || !item.str.trim()) continue;
+            // Redondear la posición Y (transform[5]) a intervalos de ~4px para agrupar en la misma línea visual
+            const y = Math.round(item.transform[5] / 4) * 4;
+            if (!linesMap.has(y)) linesMap.set(y, []);
+            linesMap.get(y).push({ x: item.transform[4], text: item.str.trim() });
+        }
+        // Ordenar líneas de arriba hacia abajo (Y descendente)
+        const sortedY = Array.from(linesMap.keys()).sort((a, b) => b - a);
+        for (const y of sortedY) {
+            // Ordenar elementos en la misma línea de izquierda a derecha (X ascendente)
+            const lineItems = linesMap.get(y).sort((a, b) => a.x - b.x);
+            fullText += lineItems.map(it => it.text).join(' \t ') + '\n';
+        }
     }
     return fullText;
 }
@@ -3420,22 +3434,52 @@ async function analizarDocumento(event) {
         const cafeterias = obtenerCafeterias();
         const textLower = textContent.toLowerCase();
         
-        // Detectar cafetería
+        // 1. Detectar cafetería por coincidencia exacta o parcial de nombre
         let cafeEncontrada = cafeterias.find(c => textLower.includes(c.nombre.toLowerCase()));
         
+        // 2. Extraer rango de fechas del periodo si existe (ej. Periodo: 10 ago 2026 - 15 ago 2026)
+        let weekStartDetected = new Date().toISOString().split('T')[0];
+        const matchPeriodo = textContent.match(/Periodo:\s*(\d{1,2})\s+([a-z]{3})\s+(\d{4})/i);
+        if (matchPeriodo) {
+            const meses = { jan: '01', ene: '01', feb: '02', mar: '03', apr: '04', abr: '04', may: '05', jun: '06', jul: '07', aug: '08', ago: '08', sep: '09', oct: '10', nov: '11', dec: '12', dic: '12' };
+            const day = matchPeriodo[1].padStart(2, '0');
+            const month = meses[matchPeriodo[2].toLowerCase()] || '08';
+            const year = matchPeriodo[3];
+            weekStartDetected = `${year}-${month}-${day}`;
+        }
+
         const rowsParsed = [];
         if (cafeEncontrada && cafeEncontrada.productos) {
             const lineas = textContent.split('\n');
             for (const prod of cafeEncontrada.productos) {
                 const prodNombre = prod.nombre_producto.toLowerCase();
-                const lineaCoincidente = lineas.find(l => l.toLowerCase().includes(prodNombre));
+                // Buscar la línea que contenga la descripción exacta o parcial del producto
+                const lineaCoincidente = lineas.find(l => {
+                    const lLower = l.toLowerCase();
+                    return lLower.includes(prodNombre) || prodNombre.includes(lLower.split('\t')[0].trim());
+                });
+
                 if (lineaCoincidente) {
-                    // Extraer los números presentes en la línea
-                    const nums = (lineaCoincidente.match(/\b\d+\b/g) || []).map(Number);
-                    if (nums.length) {
-                        // Mapear hasta 6 días (Lun-Sáb)
+                    // Extraer los tokens/números en la línea
+                    const partes = lineaCoincidente.split('\t').map(p => p.trim()).filter(Boolean);
+                    const numerosEnLinea = [];
+                    for (const part of partes) {
+                        if (/^\d+$/.test(part)) {
+                            numerosEnLinea.push(parseInt(part, 10));
+                        }
+                    }
+                    if (numerosEnLinea.length) {
                         const values = [0, 0, 0, 0, 0, 0];
-                        nums.slice(0, 6).forEach((val, idx) => {
+                        // Si el último número de la línea corresponde a la suma total (última columna P.U./Total), descartarlo si supera la suma
+                        let numsParaDias = numerosEnLinea;
+                        if (numerosEnLinea.length > 1) {
+                            const posibleTotal = numerosEnLinea[numerosEnLinea.length - 1];
+                            const sumaPrimeros = numerosEnLinea.slice(0, -1).reduce((a, b) => a + b, 0);
+                            if (posibleTotal === sumaPrimeros) {
+                                numsParaDias = numerosEnLinea.slice(0, -1);
+                            }
+                        }
+                        numsParaDias.slice(0, 6).forEach((val, idx) => {
                             values[idx] = val;
                         });
                         rowsParsed.push({
@@ -3451,18 +3495,18 @@ async function analizarDocumento(event) {
         importacionActual = {
             id: 'imp_' + Date.now(),
             original_name: file.name,
-            confidence: rowsParsed.length ? 95 : 70,
-            week_start: new Date().toISOString().split('T')[0],
+            confidence: rowsParsed.length ? 98 : (cafeEncontrada ? 75 : 50),
+            week_start: weekStartDetected,
             raw_excerpt: textContent.slice(0, 600) + (textContent.length > 600 ? '...' : ''),
             cafeteria_id: cafeEncontrada ? cafeEncontrada.id : '',
             rows: rowsParsed,
             warnings: cafeEncontrada 
-                ? (rowsParsed.length ? [] : ['Se detectó la cafetería pero se recomienda revisar y capturar las cantidades manualmente.']) 
+                ? (rowsParsed.length ? [] : ['Se detectó la cafetería pero revisa los productos.']) 
                 : ['No se detectó automáticamente el nombre de la cafetería en el PDF. Por favor selecciónala manualmente.']
         };
 
         mostrarVistaImportacion();
-        showToast('PDF analizado correctamente.', 'success');
+        showToast('PDF parseado y cargado correctamente.', 'success');
     } catch (error) {
         console.error(error);
         showToast('No se pudo extraer el texto del PDF.', 'error');
