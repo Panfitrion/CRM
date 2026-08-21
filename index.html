@@ -1528,6 +1528,80 @@
         white-space: nowrap;
     }
 
+    .cobranza-filter-bar {
+        display: flex;
+        gap: 10px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-soft);
+    }
+
+    .btn-tab {
+        border: 1px solid var(--border-strong);
+        background: var(--surface);
+        color: var(--text-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .btn-tab.active {
+        background: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+    }
+
+    .week-group-card {
+        margin-bottom: 24px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--surface);
+    }
+
+    .week-group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 18px;
+        background: #f1f4f6;
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 700;
+        color: var(--primary);
+        font-size: 14px;
+    }
+
+    .btn-pay-status {
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: all 0.15s ease;
+    }
+
+    .btn-pay-status.pendiente {
+        background: #fdf2f2;
+        color: #b86147;
+        border-color: #f7d4cc;
+    }
+
+    .btn-pay-status.pendiente:hover {
+        background: #fce8e6;
+    }
+
+    .btn-pay-status.pagado {
+        background: #e6f4ea;
+        color: #137333;
+        border-color: #ceead6;
+    }
+
+    .btn-pay-status.pagado:hover {
+        background: #d2e3d8;
+    }
+
     @media (max-width: 620px) {
         .week-field { min-width: 0; }
         .week-stepper { width: 100%; }
@@ -1867,10 +1941,14 @@
     <div class="win-window">
         <div class="win-title-bar">
             <div class="title-copy">
-                <strong>Cuentas pendientes</strong>
-                <small>Semanas cerradas que todavía deben cobrarse</small>
+                <strong>Cobranza y Cuentas</strong>
+                <small>Gestión de pagos por semanas cerradas</small>
             </div>
             <div class="account-amount" id="cobranza-total">$0.00</div>
+        </div>
+        <div class="cobranza-filter-bar">
+            <button class="win-btn btn-tab active" id="tab-cobranza-pendientes" type="button" onclick="filtrarCobranza('pendiente')">Cuentas pendientes</button>
+            <button class="win-btn btn-tab" id="tab-cobranza-pagadas" type="button" onclick="filtrarCobranza('pagado')">Historial de pagadas</button>
         </div>
         <div class="account-list" id="lista-cuentas"></div>
     </div>
@@ -2759,39 +2837,175 @@ function cuentaHtml(cuenta) {
     </div>`;
 }
 
-function renderResumen() {
-    const cafes = obtenerCafeterias();
+let estadoCobranzaFiltro = 'pendiente';
+
+function filtrarCobranza(estado) {
+    estadoCobranzaFiltro = estado;
+    document.getElementById('tab-cobranza-pendientes')?.classList.toggle('active', estado === 'pendiente');
+    document.getElementById('tab-cobranza-pagadas')?.classList.toggle('active', estado === 'pagado');
+    renderCuentas();
+}
+
+function cambiarEstadoPagoCuenta(id, nuevoEstado) {
     const cuentas = leerLocal(STORAGE_KEYS.cuentas);
-    const productos = cafes.reduce((total, cafe) => total + (cafe.productos || []).length, 0);
-    const saldo = cuentas.reduce((total, cuenta) => total + (Number(cuenta.monto) || 0), 0);
-    const valores = {
-        'metric-cafeterias': cafes.length,
-        'metric-productos': productos,
-        'metric-cuentas': cuentas.length,
-        'metric-saldo': formatoDinero(saldo)
-    };
-    Object.entries(valores).forEach(([id, value]) => {
-        const element = document.getElementById(id);
-        if (element) element.textContent = value;
-    });
-    const contenedor = document.getElementById('resumen-cuentas');
-    if (!contenedor) return;
-    const recientes = cuentas.slice().reverse().slice(0, 5);
-    contenedor.innerHTML = recientes.length
-        ? recientes.map(cuentaHtml).join('')
-        : '<div class="list-empty">No hay cuentas pendientes.</div>';
+    const cuenta = cuentas.find(c => String(c.id) === String(id));
+    if (!cuenta) return;
+    cuenta.estado_pago = nuevoEstado;
+    cuenta.fecha_pago = nuevoEstado === 'pagado' ? new Date().toISOString() : null;
+    guardarLocal(STORAGE_KEYS.cuentas, cuentas);
+    renderResumen();
+    renderCuentas();
+    renderHistorialPedidos();
+    showToast(`Cuenta marcada como ${nuevoEstado === 'pagado' ? 'PAGADA' : 'PENDIENTE'}.`, 'success');
 }
 
 function renderCuentas() {
-    const cuentas = leerLocal(STORAGE_KEYS.cuentas);
-    const total = cuentas.reduce((suma, cuenta) => suma + (Number(cuenta.monto) || 0), 0);
+    const todasCuentas = leerLocal(STORAGE_KEYS.cuentas);
+    const pendientes = todasCuentas.filter(c => (c.estado_pago || 'pendiente') === 'pendiente');
+    const totalPendiente = pendientes.reduce((suma, cuenta) => suma + (Number(cuenta.monto) || 0), 0);
     const totalEl = document.getElementById('cobranza-total');
     const listaEl = document.getElementById('lista-cuentas');
-    if (totalEl) totalEl.textContent = formatoDinero(total);
-    if (listaEl) {
-        listaEl.innerHTML = cuentas.length
-            ? cuentas.slice().reverse().map(cuentaHtml).join('')
-            : '<div class="list-empty">No hay cuentas pendientes de cobro.</div>';
+    if (totalEl) totalEl.textContent = formatoDinero(totalPendiente);
+
+    if (!listaEl) return;
+    const cuentasFiltradas = todasCuentas.filter(c => (c.estado_pago || 'pendiente') === estadoCobranzaFiltro);
+    
+    if (!cuentasFiltradas.length) {
+        listaEl.innerHTML = `<div class="list-empty">No hay cuentas en estado «${estadoCobranzaFiltro}».</div>`;
+        return;
+    }
+
+    // Agrupar cuentas por semana (periodo o week_start)
+    const semanasMap = new Map();
+    cuentasFiltradas.forEach(cuenta => {
+        const periodoKey = cuenta.periodo || cuenta.week_start || 'Periodo sin fecha';
+        if (!semanasMap.has(periodoKey)) semanasMap.set(periodoKey, []);
+        semanasMap.get(periodoKey).push(cuenta);
+    });
+
+    let html = '';
+    semanasMap.forEach((cuentasSemana, periodoStr) => {
+        const totalSemana = cuentasSemana.reduce((sum, c) => sum + (Number(c.monto) || 0), 0);
+        html += `<div class="week-group-card">
+            <div class="week-group-header">
+                <span>📅 Periodo: ${escapeHtml(periodoStr)}</span>
+                <span>Subtotal: ${formatoDinero(totalSemana)}</span>
+            </div>
+            <div class="history-list">
+                ${cuentasSemana.map(cuenta => `
+                    <div class="history-row">
+                        <div class="history-main">
+                            <strong>${escapeHtml(cuenta.cafeteria_nombre || cuenta.cafe_nombre || 'Cafetería')}</strong>
+                            <small>Folio ${cuenta.folio ? String(cuenta.folio).padStart(6, '0') : 'N/A'}</small>
+                        </div>
+                        <div class="client-meta">Monto: <strong>${formatoDinero(cuenta.monto)}</strong></div>
+                        <div class="title-actions">
+                            ${cuenta.estado_pago === 'pagado'
+                                ? `<button type="button" class="btn-pay-status pagado" onclick="cambiarEstadoPagoCuenta('${escapeHtml(cuenta.id)}', 'pendiente')">✓ Pagado</button>`
+                                : `<button type="button" class="btn-pay-status pendiente" onclick="cambiarEstadoPagoCuenta('${escapeHtml(cuenta.id)}', 'pagado')">Marcar como Pagado</button>`
+                            }
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+    });
+
+    listaEl.innerHTML = html;
+}
+
+async function renderHistorialPedidos() {
+    const contenedor = document.getElementById('lista-historial');
+    if (!contenedor) return;
+    try {
+        const cuentas = leerLocal(STORAGE_KEYS.cuentas);
+        const borradores = obtenerPedidos();
+
+        if (!cuentas.length && !borradores.length) {
+            contenedor.innerHTML = '<div class="list-empty">Todavía no hay pedidos ni semanas cerradas en el historial.</div>';
+            return;
+        }
+
+        // 1. Mapear semanas cerradas (cuentas)
+        const items = cuentas.map(c => ({
+            id: c.id,
+            clave: c.pedido_clave || c.id,
+            folio: c.folio,
+            cafeteria_nombre: c.cafeteria_nombre || c.cafe_nombre || 'Cafetería',
+            periodo: c.periodo || 'Periodo sin fecha',
+            monto: c.monto,
+            estado_pago: c.estado_pago || 'pendiente',
+            es_cerrado: true
+        }));
+
+        // 2. Mapear borradores activos
+        borradores.forEach((p, idx) => {
+            const [cafeId, week] = p.clave.split('|');
+            const cafe = obtenerCafeteria(cafeId);
+            let totalCents = 0;
+            for (const [key, qty] of Object.entries(p.cantidades || {})) {
+                const [prodId, movement] = key.split(':');
+                const prod = (cafe?.productos || []).find(pr => String(pr.id) === String(prodId));
+                const unitPrice = Number(prod?.precio) || 0;
+                if (qty > 0) {
+                    if (movement === 'venta') totalCents += qty * unitPrice * 100;
+                    else totalCents -= qty * unitPrice * 100;
+                }
+            }
+            items.push({
+                id: p.clave,
+                clave: p.clave,
+                folio: null,
+                cafeteria_nombre: cafe ? cafe.nombre : 'Cafetería',
+                periodo: `Semana ${week}`,
+                monto: Math.max(0, totalCents / 100),
+                estado_pago: 'borrador',
+                es_cerrado: false
+            });
+        });
+
+        // Agrupar por semana/periodo
+        const semanasMap = new Map();
+        items.forEach(item => {
+            const periodoKey = item.periodo;
+            if (!semanasMap.has(periodoKey)) semanasMap.set(periodoKey, []);
+            semanasMap.get(periodoKey).push(item);
+        });
+
+        let html = '';
+        semanasMap.forEach((itemsSemana, periodoStr) => {
+            html += `<div class="week-group-card">
+                <div class="week-group-header">
+                    <span>📅 Semana: ${escapeHtml(periodoStr)}</span>
+                    <span>${itemsSemana.length} registro(s)</span>
+                </div>
+                <div class="history-list">
+                    ${itemsSemana.map(item => `
+                        <div class="history-row">
+                            <div class="history-main">
+                                <strong>${escapeHtml(item.cafeteria_nombre)}</strong>
+                                <small>${item.es_cerrado ? `Folio ${String(item.folio).padStart(6, '0')}` : 'Borrador en captura'}</small>
+                            </div>
+                            <div class="client-meta">Total: <strong>${formatoDinero(item.monto)}</strong></div>
+                            <div class="title-actions" style="display:flex; gap:8px; align-items:center;">
+                                ${item.es_cerrado
+                                    ? (item.estado_pago === 'pagado'
+                                        ? `<button type="button" class="btn-pay-status pagado" onclick="cambiarEstadoPagoCuenta('${escapeHtml(item.id)}', 'pendiente')">✓ Pagado</button>`
+                                        : `<button type="button" class="btn-pay-status pendiente" onclick="cambiarEstadoPagoCuenta('${escapeHtml(item.id)}', 'pagado')">Marcar como Pagado</button>`)
+                                    : `<span class="status-text">Capturando</span>`
+                                }
+                                ${item.es_cerrado ? '' : `<button class="win-btn" type="button" onclick="abrirDetallePedido('${escapeHtml(item.clave)}')">Ver pedido</button>`}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        });
+
+        contenedor.innerHTML = html;
+    } catch (error) {
+        console.error(error);
+        contenedor.innerHTML = '<div class="list-empty">No se pudo cargar el historial.</div>';
     }
 }
 
